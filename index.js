@@ -113,6 +113,39 @@ app.delete('/parcels/:id',async(req,res)=>{
   // }
   res.send(result)
 })
+// update
+
+app.patch('/parcels/:id', async (req, res) => {
+
+  const id = req.params.id;
+
+  const updatedData = req.body;
+
+  const filter = {
+    _id: new ObjectId(id)
+  };
+
+  const updateDoc = {
+    $set: {
+      senderName: updatedData.senderName,
+      senderContact: updatedData.senderContact,
+      receiverName: updatedData.receiverName,
+      receiverContact: updatedData.receiverContact,
+      parcelType: updatedData.parcelType,
+      parcelWeight: updatedData.parcelWeight,
+      deliveryAddress: updatedData.deliveryAddress,
+      cost: updatedData.cost,
+    }
+  };
+
+  const result = await parcelCollection.updateOne(
+    filter,
+    updateDoc
+  );
+
+  res.send(result);
+
+});
 
 
 
