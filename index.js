@@ -1,13 +1,15 @@
 const express = require('express')
 const app = express()
 const port = process.env.PORT || 3000
-const cors=require('cors')
+const cors=require('cors');
 require('dotenv').config()
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 // herologistic
 // ix42sw6LwKtowJwc
 
-app.use(cors())
+app.use(cors({
+  origin:"http://localhost:5173"
+}))
 app.use(express.json())
 
 
@@ -34,6 +36,11 @@ const myDB = client.db("parcels");
 
 const parcelCollection = myDB.collection("parcels");
 
+
+const myyDB = client.db("contacts");
+const myColl = myyDB.collection("contacts");
+
+
 app.get('/parcels', async(req,res)=>{
   // fetch mail id 
   const userEmail=req.query.email;
@@ -48,6 +55,44 @@ app.get('/parcels', async(req,res)=>{
   const parcels=await parcelCollection.find(query,options).toArray();
   res.send(parcels)
 })
+
+// app.get('/parcels', async(req,res)=>{
+//   const userEmail =req.query.email
+//   const query=userEmail?{created_by:userEmail}:{}
+//   const option={
+//     sort:{createdAt:-1}
+//   }
+//   const result=await parcelCollection.find(query,option);
+//   res.send(result)
+// })
+
+
+// contact post
+app.post('/contacts',async(req,res)=>{
+  const newContact=req.body
+  const newResult=await myColl.insertOne(newContact);
+  res.send(newResult)
+})
+
+// contact get 
+app.get('/contacts', async (req,res)=>{
+  const contactEmail=req.query.email;
+  const query=contactEmail?{email:contactEmail}:{};
+  const contacts=await myColl.find(query).toArray();
+  res.send(contacts)
+})
+
+// contact delete
+app.delete('/contacts/:id',async(req,res)=>{
+  const id =req.params.id;
+
+  const result=await myColl.deleteOne({_id:new ObjectId(id)});
+  res.send(result)
+})
+
+
+
+
 
 
 app.post('/parcels', async (req, res) => {
