@@ -36,7 +36,7 @@ async function run() {
 const myDB = client.db("parcels");
 
 const parcelCollection = myDB.collection("parcels");
-
+const paymentCollection = myDB.collection("payments");
 
 const myyDB = client.db("contacts");
 const myColl = myyDB.collection("contacts");
@@ -49,6 +49,8 @@ app.get('/parcels/:id',async(req,res)=>{
   const parcel=await parcelCollection.findOne({_id:new ObjectId(id)});
   res.send(parcel)
 })
+
+
 
 // Create Checkout Session endpoint
 app.post('/create-payment-intent', async (req, res) => {
@@ -81,6 +83,52 @@ app.post('/create-payment-intent', async (req, res) => {
     });
 
   }
+
+});
+
+// after payment api-
+// SAVE PAYMENT & UPDATE PARCEL STATUS
+
+app.post('/payments', async (req, res) => {
+
+  const paymentData = req.body;
+
+  // SAVE PAYMENT HISTORY
+  const paymentResult =
+    await paymentCollection.insertOne(paymentData);
+
+  // UPDATE PARCEL PAYMENT STATUS
+  const query = {
+    _id: new ObjectId(paymentData.parcelId)
+  };
+
+  const updateDoc = {
+    $set: {
+      payment_status: 'paid',
+      transactionId: paymentData.transactionId,
+      paid_at: new Date()
+    }
+  };
+
+  const updateResult =
+    await parcelCollection.updateOne(query, updateDoc);
+
+  res.send({
+    paymentResult,
+    updateResult
+  });
+
+});
+// GET PAYMENT HISTORY
+
+app.get('/payments', async (req, res) => {
+
+  const result = await paymentCollection
+    .find()
+    .sort({ paid_at: -1 }) // latest payment first
+    .toArray();
+
+  res.send(result);
 
 });
 
