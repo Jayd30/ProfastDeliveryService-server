@@ -6,6 +6,7 @@ require('dotenv').config()
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 // herologistic
 // ix42sw6LwKtowJwc
+const stripe = require('stripe')(process.env.PAYMENT_GATEWAY_KEY);
 
 app.use(cors({
   origin:"http://localhost:5173"
@@ -13,7 +14,7 @@ app.use(cors({
 app.use(express.json())
 
 
-
+// originallllllllllllllllllllllllllllllllllllllllll
 
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@simple-crud-server.wz75wnp.mongodb.net/?appName=Simple-crud-server`;
@@ -40,6 +41,48 @@ const parcelCollection = myDB.collection("parcels");
 const myyDB = client.db("contacts");
 const myColl = myyDB.collection("contacts");
 
+// // get api for specific id in payment page
+
+
+app.get('/parcels/:id',async(req,res)=>{
+  const id=req.params.id;
+  const parcel=await parcelCollection.findOne({_id:new ObjectId(id)});
+  res.send(parcel)
+})
+
+// Create Checkout Session endpoint
+app.post('/create-payment-intent', async (req, res) => {
+
+  try {
+
+    const { amountInCents } = req.body;
+
+    const paymentIntent =
+      await stripe.paymentIntents.create({
+
+        amount: amountInCents,
+
+        currency: 'usd',
+
+        payment_method_types: ['card'],
+
+      });
+
+    res.send({
+      clientSecret: paymentIntent.client_secret
+    });
+
+  }
+
+  catch (error) {
+
+    res.status(500).send({
+      error: error.message
+    });
+
+  }
+
+});
 
 app.get('/parcels', async(req,res)=>{
   // fetch mail id 
