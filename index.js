@@ -39,8 +39,13 @@ const parcelCollection = myDB.collection("parcels");
 const paymentCollection = myDB.collection("payments");
 const trackingCollection=myDB.collection("tracking")
 const userCollection=myDB.collection('users')
+const riderCollection=myDB.collection('riders')
 const myyDB = client.db("contacts");
 const myColl = myyDB.collection("contacts");
+
+
+
+
 
 // // get api for specific id in payment page
 
@@ -156,6 +161,15 @@ app.post('/users',async(req,res)=>{
 })
 // after stored data get data from mongo
 
+
+
+app.get('/riders', async (req, res) => {
+
+  const result = await riderCollection.find().toArray();
+
+  res.send(result);
+
+});
 app.get('/users/:email', async(req,res)=>{
 
   const email = req.params.email;
@@ -191,6 +205,16 @@ app.get('/parcels', async(req,res)=>{
 //   const result=await parcelCollection.find(query,option);
 //   res.send(result)
 // })
+
+
+// rider form submit
+
+app.post('/riders', async(req,res)=>{
+  const newRider=req.body;
+  const result=await riderCollection.insertOne(newRider);
+  res.send(result)
+})
+
 
 
 // contact post
