@@ -37,7 +37,8 @@ const myDB = client.db("parcels");
 
 const parcelCollection = myDB.collection("parcels");
 const paymentCollection = myDB.collection("payments");
-
+const trackingCollection=myDB.collection("tracking")
+const userCollection=myDB.collection('users')
 const myyDB = client.db("contacts");
 const myColl = myyDB.collection("contacts");
 
@@ -132,6 +133,40 @@ app.get('/payments', async (req, res) => {
 
 });
 
+
+// tracking 
+app.post('/tracking',async(req,res)=>{
+  const {tracking_id,parcel_id,status,message,updated_by=''}=req.body;
+
+  const log={
+    tracking_id,
+    status,
+    message,parcel_id:parcel_id? new ObjectId(parcel_id):undefined,
+    time:new Date(),
+    updated_by
+  };
+  const result=await trackingCollection.insertOne(log);
+  res.send({message:true,insertId:result.insertedId})
+})
+// post regsiter rest data
+app.post('/users',async(req,res)=>{
+  const user=req.body;
+  const result=await userCollection.insertOne(user);
+  res.send(result)
+})
+// after stored data get data from mongo
+
+app.get('/users/:email', async(req,res)=>{
+
+  const email = req.params.email;
+
+  const result = await userCollection.findOne({
+    email: email
+  });
+
+  res.send(result);
+
+})
 app.get('/parcels', async(req,res)=>{
   // fetch mail id 
   const userEmail=req.query.email;
