@@ -1,321 +1,873 @@
-const express = require('express')
-const app = express()
-const port = process.env.PORT || 3000
-const cors=require('cors');
-require('dotenv').config()
+const express = require('express');
+const app = express();
+const port = process.env.PORT || 3000;
+
+const cors = require('cors');
+require('dotenv').config();
+
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-// herologistic
-// ix42sw6LwKtowJwc
+
 const stripe = require('stripe')(process.env.PAYMENT_GATEWAY_KEY);
 
+// ============================================
+// MIDDLEWARE
+// ============================================
+
 app.use(cors({
-  origin:"http://localhost:5173"
-}))
-app.use(express.json())
+  origin: "http://localhost:5173",
+  credentials: true
+}));
 
+app.use(express.json());
 
-// originallllllllllllllllllllllllllllllllllllllllll
+// ============================================
+// MONGODB URI
+// ============================================
 
+const uri =
+  `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@simple-crud-server.wz75wnp.mongodb.net/?retryWrites=true&w=majority&appName=Simple-crud-server`;
 
-const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@simple-crud-server.wz75wnp.mongodb.net/?appName=Simple-crud-server`;
+// ============================================
+// MONGODB CLIENT
+// ============================================
 
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
+
   serverApi: {
     version: ServerApiVersion.v1,
     strict: true,
     deprecationErrors: true,
   }
+
 });
+
+// ============================================
+// RUN SERVER
+// ============================================
 
 async function run() {
+
   try {
-    // Connect the client to the server	(optional starting in v4.7)
+
     await client.connect();
 
-const myDB = client.db("parcels");
+    console.log("MongoDB Connected");
 
-const parcelCollection = myDB.collection("parcels");
-const paymentCollection = myDB.collection("payments");
-const trackingCollection=myDB.collection("tracking")
-const userCollection=myDB.collection('users')
-const riderCollection=myDB.collection('riders')
-const myyDB = client.db("contacts");
-const myColl = myyDB.collection("contacts");
+    // ============================================
+    // DATABASE & COLLECTIONS
+    // ============================================
 
+    const myDB = client.db("parcels");
 
+    const parcelCollection = myDB.collection("parcels");
 
+    const paymentCollection = myDB.collection("payments");
 
+    const trackingCollection = myDB.collection("tracking");
 
-// // get api for specific id in payment page
+    const userCollection = myDB.collection("users");
 
+    const riderCollection = myDB.collection("riders");
 
-app.get('/parcels/:id',async(req,res)=>{
-  const id=req.params.id;
-  const parcel=await parcelCollection.findOne({_id:new ObjectId(id)});
-  res.send(parcel)
-})
+    const contactCollection = myDB.collection("contacts");
 
+    // ============================================
+    // USERS API
+    // ============================================
 
+    // SAVE USER
+    app.post('/users', async (req, res) => {
 
-// Create Checkout Session endpoint
-app.post('/create-payment-intent', async (req, res) => {
+      try {
 
-  try {
+        const user = req.body;
 
-    const { amountInCents } = req.body;
+        // CHECK EXISTING USER
+        const existingUser = await userCollection.findOne({
+          email: user.email
+        });
 
-    const paymentIntent =
-      await stripe.paymentIntents.create({
+        if (existingUser) {
 
-        amount: amountInCents,
+          return res.send({
+            message: "user already exists"
+          });
 
-        currency: 'usd',
+        }
 
-        payment_method_types: ['card'],
+        // ADMIN CHECK
+        if (user.email === "raja@gmail.com") {
 
-      });
+          user.role = "admin";
 
-    res.send({
-      clientSecret: paymentIntent.client_secret
+        }
+        else {
+
+          user.role = "user";
+
+        }
+
+        user.createdAt = new Date();
+
+        const result = await userCollection.insertOne(user);
+
+        res.send(result);
+
+      }
+
+      catch (error) {
+
+        console.log(error);
+
+        res.status(500).send({
+          error: error.message
+        });
+
+      }
+
     });
 
-  }
+    // GET ALL USERS
+    app.get('/users', async (req, res) => {
 
-  catch (error) {
+      try {
 
-    res.status(500).send({
-      error: error.message
+        const users = await userCollection.find().toArray();
+
+        res.send(users);
+
+      }
+
+      catch (error) {
+
+        console.log(error);
+
+        res.status(500).send({
+          error: error.message
+        });
+
+      }
+
     });
 
-  }
+    // SEARCH USERS
+    app.get('/users/search', async (req, res) => {
 
-});
+      try {
 
-// after payment api-
-// SAVE PAYMENT & UPDATE PARCEL STATUS
+        const email = req.query.email;
 
-app.post('/payments', async (req, res) => {
+        if (!email) {
 
-  const paymentData = req.body;
+          return res.status(400).send({
+            message: "email query required"
+          });
 
-  // SAVE PAYMENT HISTORY
-  const paymentResult =
-    await paymentCollection.insertOne(paymentData);
+        }
 
-  // UPDATE PARCEL PAYMENT STATUS
-  const query = {
-    _id: new ObjectId(paymentData.parcelId)
-  };
+        const users = await userCollection.find({
 
-  const updateDoc = {
-    $set: {
-      payment_status: 'paid',
-      transactionId: paymentData.transactionId,
-      paid_at: new Date()
-    }
-  };
+          email: {
+            $regex: email,
+            $options: "i"
+          }
 
-  const updateResult =
-    await parcelCollection.updateOne(query, updateDoc);
+        })
+          .project({
+            email: 1,
+            role: 1,
+            createdAt: 1
+          })
+          .limit(10)
+          .toArray();
 
-  res.send({
-    paymentResult,
-    updateResult
-  });
+        res.send(users);
 
-});
-// GET PAYMENT HISTORY
+      }
 
-app.get('/payments', async (req, res) => {
+      catch (error) {
 
-  const result = await paymentCollection
-    .find()
-    .sort({ paid_at: -1 }) // latest payment first
-    .toArray();
+        console.log(error);
 
-  res.send(result);
+        res.status(500).send({
+          error: error.message
+        });
 
-});
+      }
 
+    });
 
-// tracking 
-app.post('/tracking',async(req,res)=>{
-  const {tracking_id,parcel_id,status,message,updated_by=''}=req.body;
+    // GET SINGLE USER
+    app.get('/users/:email', async (req, res) => {
 
-  const log={
-    tracking_id,
-    status,
-    message,parcel_id:parcel_id? new ObjectId(parcel_id):undefined,
-    time:new Date(),
-    updated_by
-  };
-  const result=await trackingCollection.insertOne(log);
-  res.send({message:true,insertId:result.insertedId})
-})
-// post regsiter rest data
-app.post('/users',async(req,res)=>{
-  const user=req.body;
-  const result=await userCollection.insertOne(user);
-  res.send(result)
-})
-// after stored data get data from mongo
+      try {
 
+        const email = req.params.email;
 
+        const result = await userCollection.findOne({
+          email: email
+        });
 
-app.get('/riders', async (req, res) => {
+        res.send(result);
 
-  const result = await riderCollection.find().toArray();
+      }
 
-  res.send(result);
+      catch (error) {
 
-});
-app.get('/users/:email', async(req,res)=>{
+        console.log(error);
 
-  const email = req.params.email;
+        res.status(500).send({
+          error: error.message
+        });
 
-  const result = await userCollection.findOne({
-    email: email
-  });
+      }
 
-  res.send(result);
+    });
 
-})
-app.get('/parcels', async(req,res)=>{
-  // fetch mail id 
-  const userEmail=req.query.email;
-  // query
-  const query=userEmail? {created_by:userEmail}:{};
-  //sorting
+    // MAKE ADMIN
+    app.patch('/users/admin/:id', async (req, res) => {
 
-  const options={
-    sort:{createdAt: -1},
-  }
+      try {
 
-  const parcels=await parcelCollection.find(query,options).toArray();
-  res.send(parcels)
-})
+        const id = req.params.id;
 
-// app.get('/parcels', async(req,res)=>{
-//   const userEmail =req.query.email
-//   const query=userEmail?{created_by:userEmail}:{}
-//   const option={
-//     sort:{createdAt:-1}
-//   }
-//   const result=await parcelCollection.find(query,option);
-//   res.send(result)
-// })
+        const result = await userCollection.updateOne(
 
+          {
+            _id: new ObjectId(id)
+          },
 
-// rider form submit
+          {
+            $set: {
+              role: "admin"
+            }
+          }
 
-app.post('/riders', async(req,res)=>{
-  const newRider=req.body;
-  const result=await riderCollection.insertOne(newRider);
-  res.send(result)
-})
+        );
 
+        res.send(result);
 
+      }
 
-// contact post
-app.post('/contacts',async(req,res)=>{
-  const newContact=req.body
-  const newResult=await myColl.insertOne(newContact);
-  res.send(newResult)
-})
+      catch (error) {
 
-// contact get 
-app.get('/contacts', async (req,res)=>{
-  const contactEmail=req.query.email;
-  const query=contactEmail?{email:contactEmail}:{};
-  const contacts=await myColl.find(query).toArray();
-  res.send(contacts)
-})
+        console.log(error);
 
-// contact delete
-app.delete('/contacts/:id',async(req,res)=>{
-  const id =req.params.id;
+        res.status(500).send({
+          error: error.message
+        });
 
-  const result=await myColl.deleteOne({_id:new ObjectId(id)});
-  res.send(result)
-})
+      }
 
+    });
 
+    // REMOVE ADMIN
+    app.patch('/users/remove-admin/:id', async (req, res) => {
 
+      try {
 
+        const id = req.params.id;
 
+        const result = await userCollection.updateOne(
 
-app.post('/parcels', async (req, res) => {
+          {
+            _id: new ObjectId(id)
+          },
 
-  const newParcel = req.body;
+          {
+            $set: {
+              role: "user"
+            }
+          }
 
-  const result = await parcelCollection.insertOne(newParcel);
+        );
 
-  res.status(201).send(result);
+        res.send(result);
 
-});
+      }
 
-app.delete('/parcels/:id',async(req,res)=>{
-  const id=req.params.id;
-  const result=await parcelCollection.deleteOne({_id:new ObjectId(id)});
-  // if(result.deletedCount===0){
-  //   return res.status(404).send({message:'parcel not found'})
-  // }
-  res.send(result)
-})
-// update
+      catch (error) {
 
-app.patch('/parcels/:id', async (req, res) => {
+        console.log(error);
 
-  const id = req.params.id;
+        res.status(500).send({
+          error: error.message
+        });
 
-  const updatedData = req.body;
+      }
 
-  const filter = {
-    _id: new ObjectId(id)
-  };
+    });
 
-  const updateDoc = {
-    $set: {
-      senderName: updatedData.senderName,
-      senderContact: updatedData.senderContact,
-      receiverName: updatedData.receiverName,
-      receiverContact: updatedData.receiverContact,
-      parcelType: updatedData.parcelType,
-      parcelWeight: updatedData.parcelWeight,
-      deliveryAddress: updatedData.deliveryAddress,
-      cost: updatedData.cost,
-    }
-  };
+    // CHECK ADMIN
+    app.get('/users/admin/:email', async (req, res) => {
 
-  const result = await parcelCollection.updateOne(
-    filter,
-    updateDoc
-  );
+      try {
 
-  res.send(result);
+        const email = req.params.email;
 
-});
+        const user = await userCollection.findOne({
+          email: email
+        });
 
+        const admin = user?.role === "admin";
 
+        res.send({ admin });
 
+      }
 
-    // Send a ping to confirm a successful connection
+      catch (error) {
+
+        console.log(error);
+
+        res.status(500).send({
+          error: error.message
+        });
+
+      }
+
+    });
+
+    // ============================================
+    // PARCEL API
+    // ============================================
+
+    // GET SINGLE PARCEL
+    app.get('/parcels/:id', async (req, res) => {
+
+      try {
+
+        const id = req.params.id;
+
+        const parcel = await parcelCollection.findOne({
+          _id: new ObjectId(id)
+        });
+
+        res.send(parcel);
+
+      }
+
+      catch (error) {
+
+        console.log(error);
+
+        res.status(500).send({
+          error: error.message
+        });
+
+      }
+
+    });
+
+    // GET ALL PARCELS
+    app.get('/parcels', async (req, res) => {
+
+      try {
+
+        const userEmail = req.query.email;
+
+        const query = userEmail
+          ? { created_by: userEmail }
+          : {};
+
+        const parcels = await parcelCollection
+          .find(query)
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.send(parcels);
+
+      }
+
+      catch (error) {
+
+        console.log(error);
+
+        res.status(500).send({
+          error: error.message
+        });
+
+      }
+
+    });
+
+    // ADD PARCEL
+    app.post('/parcels', async (req, res) => {
+
+      try {
+
+        const newParcel = req.body;
+
+        newParcel.createdAt = new Date();
+
+        const result = await parcelCollection.insertOne(newParcel);
+
+        res.status(201).send(result);
+
+      }
+
+      catch (error) {
+
+        console.log(error);
+
+        res.status(500).send({
+          error: error.message
+        });
+
+      }
+
+    });
+
+    // DELETE PARCEL
+    app.delete('/parcels/:id', async (req, res) => {
+
+      try {
+
+        const id = req.params.id;
+
+        const result = await parcelCollection.deleteOne({
+          _id: new ObjectId(id)
+        });
+
+        res.send(result);
+
+      }
+
+      catch (error) {
+
+        console.log(error);
+
+        res.status(500).send({
+          error: error.message
+        });
+
+      }
+
+    });
+
+    // UPDATE PARCEL
+    app.patch('/parcels/:id', async (req, res) => {
+
+      try {
+
+        const id = req.params.id;
+
+        const updatedData = req.body;
+
+        const filter = {
+          _id: new ObjectId(id)
+        };
+
+        const updateDoc = {
+
+          $set: {
+
+            senderName: updatedData.senderName,
+            senderContact: updatedData.senderContact,
+            receiverName: updatedData.receiverName,
+            receiverContact: updatedData.receiverContact,
+            parcelType: updatedData.parcelType,
+            parcelWeight: updatedData.parcelWeight,
+            deliveryAddress: updatedData.deliveryAddress,
+            cost: updatedData.cost,
+
+          }
+
+        };
+
+        const result = await parcelCollection.updateOne(
+          filter,
+          updateDoc
+        );
+
+        res.send(result);
+
+      }
+
+      catch (error) {
+
+        console.log(error);
+
+        res.status(500).send({
+          error: error.message
+        });
+
+      }
+
+    });
+
+    // ============================================
+    // PAYMENT API
+    // ============================================
+
+    app.post('/create-payment-intent', async (req, res) => {
+
+      try {
+
+        const { amountInCents } = req.body;
+
+        const paymentIntent =
+          await stripe.paymentIntents.create({
+
+            amount: amountInCents,
+
+            currency: 'usd',
+
+            payment_method_types: ['card']
+
+          });
+
+        res.send({
+          clientSecret: paymentIntent.client_secret
+        });
+
+      }
+
+      catch (error) {
+
+        res.status(500).send({
+          error: error.message
+        });
+
+      }
+
+    });
+
+    // SAVE PAYMENT
+    app.post('/payments', async (req, res) => {
+
+      try {
+
+        const paymentData = req.body;
+
+        const paymentResult =
+          await paymentCollection.insertOne(paymentData);
+
+        const query = {
+          _id: new ObjectId(paymentData.parcelId)
+        };
+
+        const updateDoc = {
+
+          $set: {
+            payment_status: 'paid',
+            transactionId: paymentData.transactionId,
+            paid_at: new Date()
+          }
+
+        };
+
+        const updateResult =
+          await parcelCollection.updateOne(query, updateDoc);
+
+        res.send({
+          paymentResult,
+          updateResult
+        });
+
+      }
+
+      catch (error) {
+
+        console.log(error);
+
+        res.status(500).send({
+          error: error.message
+        });
+
+      }
+
+    });
+
+    // GET PAYMENTS
+    app.get('/payments', async (req, res) => {
+
+      try {
+
+        const result = await paymentCollection
+          .find()
+          .sort({ paid_at: -1 })
+          .toArray();
+
+        res.send(result);
+
+      }
+
+      catch (error) {
+
+        console.log(error);
+
+        res.status(500).send({
+          error: error.message
+        });
+
+      }
+
+    });
+
+    // ============================================
+    // TRACKING API
+    // ============================================
+
+    app.post('/tracking', async (req, res) => {
+
+      try {
+
+        const {
+          tracking_id,
+          parcel_id,
+          status,
+          message,
+          updated_by = ''
+        } = req.body;
+
+        const log = {
+
+          tracking_id,
+          status,
+          message,
+
+          parcel_id: parcel_id
+            ? new ObjectId(parcel_id)
+            : null,
+
+          time: new Date(),
+
+          updated_by
+
+        };
+
+        const result =
+          await trackingCollection.insertOne(log);
+
+        res.send({
+          message: true,
+          insertId: result.insertedId
+        });
+
+      }
+
+      catch (error) {
+
+        console.log(error);
+
+        res.status(500).send({
+          error: error.message
+        });
+
+      }
+
+    });
+
+    // ============================================
+    // RIDERS API
+    // ============================================
+
+    // GET RIDER BY EMAIL
+    app.get('/riders/:email', async (req, res) => {
+
+      try {
+
+        const email = req.params.email;
+
+        const query = {
+          email: email
+        };
+
+        const result = await riderCollection.findOne(query);
+
+        res.send(result);
+
+      }
+
+      catch (error) {
+
+        console.log(error);
+
+        res.status(500).send({
+          error: error.message
+        });
+
+      }
+
+    });
+
+    // ADD RIDER
+    app.post('/riders', async (req, res) => {
+
+      try {
+
+        const newRider = req.body;
+
+        newRider.createdAt = new Date();
+
+        const result =
+          await riderCollection.insertOne(newRider);
+
+        res.send(result);
+
+      }
+
+      catch (error) {
+
+        console.log(error);
+
+        res.status(500).send({
+          error: error.message
+        });
+
+      }
+
+    });
+
+    // GET ALL RIDERS
+    app.get('/riders', async (req, res) => {
+
+      try {
+
+        const result =
+          await riderCollection.find().toArray();
+
+        res.send(result);
+
+      }
+
+      catch (error) {
+
+        console.log(error);
+
+        res.status(500).send({
+          error: error.message
+        });
+
+      }
+
+    });
+
+    // ============================================
+    // CONTACT API
+    // ============================================
+
+    // SAVE CONTACT
+    app.post('/contacts', async (req, res) => {
+
+      try {
+
+        const newContact = req.body;
+
+        newContact.createdAt = new Date();
+
+        const result =
+          await contactCollection.insertOne(newContact);
+
+        res.send(result);
+
+      }
+
+      catch (error) {
+
+        console.log(error);
+
+        res.status(500).send({
+          error: error.message
+        });
+
+      }
+
+    });
+
+    // GET CONTACTS
+    app.get('/contacts', async (req, res) => {
+
+      try {
+
+        const contactEmail = req.query.email;
+
+        const query = contactEmail
+          ? { email: contactEmail }
+          : {};
+
+        const contacts =
+          await contactCollection.find(query).toArray();
+
+        res.send(contacts);
+
+      }
+
+      catch (error) {
+
+        console.log(error);
+
+        res.status(500).send({
+          error: error.message
+        });
+
+      }
+
+    });
+
+    // DELETE CONTACT
+    app.delete('/contacts/:id', async (req, res) => {
+
+      try {
+
+        const id = req.params.id;
+
+        const result = await contactCollection.deleteOne({
+          _id: new ObjectId(id)
+        });
+
+        res.send(result);
+
+      }
+
+      catch (error) {
+
+        console.log(error);
+
+        res.status(500).send({
+          error: error.message
+        });
+
+      }
+
+    });
+
+    // ============================================
+    // MONGODB PING
+    // ============================================
+
     await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
-  } finally {
-   
+
+    console.log(
+      "Pinged your deployment. Successfully connected to MongoDB!"
+    );
+
   }
+
+  finally {
+
+  }
+
 }
+
 run().catch(console.dir);
 
-
-
+// ============================================
+// ROOT API
+// ============================================
 
 app.get('/', (req, res) => {
-  res.send('Hello World!')
-})
+
+  res.send('Hero Logistic Server Running');
+
+});
+
+// ============================================
+// SERVER LISTEN
+// ============================================
 
 app.listen(port, () => {
-  console.log(`Hero logistic is on port ${port}`)
-})
+
+  console.log(`Hero Logistic is running on port ${port}`);
+
+});
