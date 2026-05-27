@@ -1,24 +1,105 @@
 const express = require('express');
-const app = express();
-const port = process.env.PORT || 3000;
-
+const jwt = require('jsonwebtoken');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 const stripe = require('stripe')(process.env.PAYMENT_GATEWAY_KEY);
 
+const app = express();
+const port = process.env.PORT || 3000;
+
 // ============================================
 // MIDDLEWARE
 // ============================================
 
 app.use(cors({
-  origin: "http://localhost:5173",
+  origin: 'http://localhost:5173',
   credentials: true
 }));
 
 app.use(express.json());
+app.use(cookieParser());
+
+// ============================================
+// JWT VERIFY MIDDLEWARE
+// ============================================
+
+const verifyToken = (req, res, next) => {
+
+  const token = req.cookies?.token;
+
+  if (!token) {
+    return res.status(401).send({
+      message: 'unauthorized access'
+    });
+  }
+
+  jwt.verify(
+    token,
+    process.env.JWT_ACCESS_SECRET,
+    (error, decoded) => {
+
+      if (error) {
+        return res.status(401).send({
+          message: 'unauthorized access'
+        });
+      }
+
+      req.decoded = decoded;
+
+      next();
+    }
+  );
+};
+
+// ============================================
+// JWT API
+// ============================================
+
+app.post('/jwt', async (req, res) => {
+
+  const { email } = req.body;
+
+  const user = { email };
+
+  const token = jwt.sign(
+    user,
+    process.env.JWT_ACCESS_SECRET,
+    {
+      expiresIn: '1d'
+    }
+  );
+
+  res.cookie('token', token, {
+    httpOnly: true,
+    secure: false,
+   
+  });
+
+  res.send({
+    success: true
+  });
+});
+
+// ============================================
+// LOGOUT API
+// ============================================
+
+app.post('/logout', async (req, res) => {
+
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: false,
+   
+  });
+
+  res.send({
+    success: true
+  });
+});
 
 // ============================================
 // MONGODB URI
@@ -35,7 +116,6 @@ const client = new MongoClient(uri, {
 
   serverApi: {
     version: ServerApiVersion.v1,
-    strict: true,
     deprecationErrors: true,
   }
 
@@ -51,25 +131,25 @@ async function run() {
 
     await client.connect();
 
-    console.log("MongoDB Connected");
+    console.log('MongoDB Connected');
 
     // ============================================
     // DATABASE & COLLECTIONS
     // ============================================
 
-    const myDB = client.db("parcels");
+    const myDB = client.db('parcels');
 
-    const parcelCollection = myDB.collection("parcels");
+    const parcelCollection = myDB.collection('parcels');
 
-    const paymentCollection = myDB.collection("payments");
+    const paymentCollection = myDB.collection('payments');
 
-    const trackingCollection = myDB.collection("tracking");
+    const trackingCollection = myDB.collection('tracking');
 
-    const userCollection = myDB.collection("users");
+    const userCollection = myDB.collection('users');
 
-    const riderCollection = myDB.collection("riders");
+    const riderCollection = myDB.collection('riders');
 
-    const contactCollection = myDB.collection("contacts");
+    const contactCollection = myDB.collection('contacts');
 
     // ============================================
     // USERS API
@@ -82,34 +162,34 @@ async function run() {
 
         const user = req.body;
 
-        // CHECK EXISTING USER
-        const existingUser = await userCollection.findOne({
-          email: user.email
-        });
+        const existingUser =
+          await userCollection.findOne({
+            email: user.email
+          });
 
         if (existingUser) {
 
           return res.send({
-            message: "user already exists"
+            message: 'user already exists'
           });
 
         }
 
-        // ADMIN CHECK
-        if (user.email === "raja@gmail.com") {
+        if (user.email === 'raja@gmail.com') {
 
-          user.role = "admin";
+          user.role = 'admin';
 
         }
         else {
 
-          user.role = "user";
+          user.role = 'user';
 
         }
 
         user.createdAt = new Date();
 
-        const result = await userCollection.insertOne(user);
+        const result =
+          await userCollection.insertOne(user);
 
         res.send(result);
 
@@ -132,15 +212,14 @@ async function run() {
 
       try {
 
-        const users = await userCollection.find().toArray();
+        const users =
+          await userCollection.find().toArray();
 
         res.send(users);
 
       }
 
       catch (error) {
-
-        console.log(error);
 
         res.status(500).send({
           error: error.message
@@ -151,51 +230,53 @@ async function run() {
     });
 
     // SEARCH USERS
-    app.get('/users/search', async (req, res) => {
+    app.get(
+      '/users/search',
+      verifyToken,
+      async (req, res) => {
 
-      try {
+        try {
 
-        const email = req.query.email;
+          const email = req.query.email;
 
-        if (!email) {
+          if (email !== req.decoded.email) {
 
-          return res.status(400).send({
-            message: "email query required"
+            return res.status(403).send({
+              message: 'forbidden access'
+            });
+
+          }
+
+          const users = await userCollection.find({
+
+            email: {
+              $regex: email,
+              $options: 'i'
+            }
+
+          })
+            .project({
+              email: 1,
+              role: 1,
+              createdAt: 1
+            })
+            .limit(10)
+            .toArray();
+
+          res.send(users);
+
+        }
+
+        catch (error) {
+
+          res.status(500).send({
+            error: error.message
           });
 
         }
 
-        const users = await userCollection.find({
-
-          email: {
-            $regex: email,
-            $options: "i"
-          }
-
-        })
-          .project({
-            email: 1,
-            role: 1,
-            createdAt: 1
-          })
-          .limit(10)
-          .toArray();
-
-        res.send(users);
-
       }
-
-      catch (error) {
-
-        console.log(error);
-
-        res.status(500).send({
-          error: error.message
-        });
-
-      }
-
-    });
+    );
 
     // GET SINGLE USER
     app.get('/users/:email', async (req, res) => {
@@ -204,17 +285,16 @@ async function run() {
 
         const email = req.params.email;
 
-        const result = await userCollection.findOne({
-          email: email
-        });
+        const result =
+          await userCollection.findOne({
+            email: email
+          });
 
         res.send(result);
 
       }
 
       catch (error) {
-
-        console.log(error);
 
         res.status(500).send({
           error: error.message
@@ -231,27 +311,26 @@ async function run() {
 
         const id = req.params.id;
 
-        const result = await userCollection.updateOne(
+        const result =
+          await userCollection.updateOne(
 
-          {
-            _id: new ObjectId(id)
-          },
+            {
+              _id: new ObjectId(id)
+            },
 
-          {
-            $set: {
-              role: "admin"
+            {
+              $set: {
+                role: 'admin'
+              }
             }
-          }
 
-        );
+          );
 
         res.send(result);
 
       }
 
       catch (error) {
-
-        console.log(error);
 
         res.status(500).send({
           error: error.message
@@ -268,27 +347,26 @@ async function run() {
 
         const id = req.params.id;
 
-        const result = await userCollection.updateOne(
+        const result =
+          await userCollection.updateOne(
 
-          {
-            _id: new ObjectId(id)
-          },
+            {
+              _id: new ObjectId(id)
+            },
 
-          {
-            $set: {
-              role: "user"
+            {
+              $set: {
+                role: 'user'
+              }
             }
-          }
 
-        );
+          );
 
         res.send(result);
 
       }
 
       catch (error) {
-
-        console.log(error);
 
         res.status(500).send({
           error: error.message
@@ -305,19 +383,19 @@ async function run() {
 
         const email = req.params.email;
 
-        const user = await userCollection.findOne({
-          email: email
-        });
+        const user =
+          await userCollection.findOne({
+            email: email
+          });
 
-        const admin = user?.role === "admin";
+        const admin =
+          user?.role === 'admin';
 
         res.send({ admin });
 
       }
 
       catch (error) {
-
-        console.log(error);
 
         res.status(500).send({
           error: error.message
@@ -338,17 +416,16 @@ async function run() {
 
         const id = req.params.id;
 
-        const parcel = await parcelCollection.findOne({
-          _id: new ObjectId(id)
-        });
+        const parcel =
+          await parcelCollection.findOne({
+            _id: new ObjectId(id)
+          });
 
         res.send(parcel);
 
       }
 
       catch (error) {
-
-        console.log(error);
 
         res.status(500).send({
           error: error.message
@@ -359,36 +436,48 @@ async function run() {
     });
 
     // GET ALL PARCELS
-    app.get('/parcels', async (req, res) => {
+    app.get(
+      '/parcels',
+      verifyToken,
+      async (req, res) => {
 
-      try {
+        try {
 
-        const userEmail = req.query.email;
+          const userEmail = req.query.email;
 
-        const query = userEmail
-          ? { created_by: userEmail }
-          : {};
+          if (userEmail !== req.decoded.email) {
 
-        const parcels = await parcelCollection
-          .find(query)
-          .sort({ createdAt: -1 })
-          .toArray();
+            return res.status(403).send({
+              message: 'forbidden access'
+            });
 
-        res.send(parcels);
+          }
+
+          const query =
+            userEmail
+              ? { created_by: userEmail }
+              : {};
+
+          const parcels =
+            await parcelCollection
+              .find(query)
+              .sort({ createdAt: -1 })
+              .toArray();
+
+          res.send(parcels);
+
+        }
+
+        catch (error) {
+
+          res.status(500).send({
+            error: error.message
+          });
+
+        }
 
       }
-
-      catch (error) {
-
-        console.log(error);
-
-        res.status(500).send({
-          error: error.message
-        });
-
-      }
-
-    });
+    );
 
     // ADD PARCEL
     app.post('/parcels', async (req, res) => {
@@ -399,15 +488,14 @@ async function run() {
 
         newParcel.createdAt = new Date();
 
-        const result = await parcelCollection.insertOne(newParcel);
+        const result =
+          await parcelCollection.insertOne(newParcel);
 
         res.status(201).send(result);
 
       }
 
       catch (error) {
-
-        console.log(error);
 
         res.status(500).send({
           error: error.message
@@ -424,17 +512,16 @@ async function run() {
 
         const id = req.params.id;
 
-        const result = await parcelCollection.deleteOne({
-          _id: new ObjectId(id)
-        });
+        const result =
+          await parcelCollection.deleteOne({
+            _id: new ObjectId(id)
+          });
 
         res.send(result);
 
       }
 
       catch (error) {
-
-        console.log(error);
 
         res.status(500).send({
           error: error.message
@@ -474,18 +561,17 @@ async function run() {
 
         };
 
-        const result = await parcelCollection.updateOne(
-          filter,
-          updateDoc
-        );
+        const result =
+          await parcelCollection.updateOne(
+            filter,
+            updateDoc
+          );
 
         res.send(result);
 
       }
 
       catch (error) {
-
-        console.log(error);
 
         res.status(500).send({
           error: error.message
@@ -557,7 +643,10 @@ async function run() {
         };
 
         const updateResult =
-          await parcelCollection.updateOne(query, updateDoc);
+          await parcelCollection.updateOne(
+            query,
+            updateDoc
+          );
 
         res.send({
           paymentResult,
@@ -567,88 +656,6 @@ async function run() {
       }
 
       catch (error) {
-
-        console.log(error);
-
-        res.status(500).send({
-          error: error.message
-        });
-
-      }
-
-    });
-
-    // GET PAYMENTS
-    app.get('/payments', async (req, res) => {
-
-      try {
-
-        const result = await paymentCollection
-          .find()
-          .sort({ paid_at: -1 })
-          .toArray();
-
-        res.send(result);
-
-      }
-
-      catch (error) {
-
-        console.log(error);
-
-        res.status(500).send({
-          error: error.message
-        });
-
-      }
-
-    });
-
-    // ============================================
-    // TRACKING API
-    // ============================================
-
-    app.post('/tracking', async (req, res) => {
-
-      try {
-
-        const {
-          tracking_id,
-          parcel_id,
-          status,
-          message,
-          updated_by = ''
-        } = req.body;
-
-        const log = {
-
-          tracking_id,
-          status,
-          message,
-
-          parcel_id: parcel_id
-            ? new ObjectId(parcel_id)
-            : null,
-
-          time: new Date(),
-
-          updated_by
-
-        };
-
-        const result =
-          await trackingCollection.insertOne(log);
-
-        res.send({
-          message: true,
-          insertId: result.insertedId
-        });
-
-      }
-
-      catch (error) {
-
-        console.log(error);
 
         res.status(500).send({
           error: error.message
@@ -662,36 +669,6 @@ async function run() {
     // RIDERS API
     // ============================================
 
-    // GET RIDER BY EMAIL
-    app.get('/riders/:email', async (req, res) => {
-
-      try {
-
-        const email = req.params.email;
-
-        const query = {
-          email: email
-        };
-
-        const result = await riderCollection.findOne(query);
-
-        res.send(result);
-
-      }
-
-      catch (error) {
-
-        console.log(error);
-
-        res.status(500).send({
-          error: error.message
-        });
-
-      }
-
-    });
-
-    // ADD RIDER
     app.post('/riders', async (req, res) => {
 
       try {
@@ -709,8 +686,6 @@ async function run() {
 
       catch (error) {
 
-        console.log(error);
-
         res.status(500).send({
           error: error.message
         });
@@ -719,7 +694,6 @@ async function run() {
 
     });
 
-    // GET ALL RIDERS
     app.get('/riders', async (req, res) => {
 
       try {
@@ -733,8 +707,6 @@ async function run() {
 
       catch (error) {
 
-        console.log(error);
-
         res.status(500).send({
           error: error.message
         });
@@ -747,7 +719,6 @@ async function run() {
     // CONTACT API
     // ============================================
 
-    // SAVE CONTACT
     app.post('/contacts', async (req, res) => {
 
       try {
@@ -765,8 +736,6 @@ async function run() {
 
       catch (error) {
 
-        console.log(error);
-
         res.status(500).send({
           error: error.message
         });
@@ -775,16 +744,16 @@ async function run() {
 
     });
 
-    // GET CONTACTS
     app.get('/contacts', async (req, res) => {
 
       try {
 
         const contactEmail = req.query.email;
 
-        const query = contactEmail
-          ? { email: contactEmail }
-          : {};
+        const query =
+          contactEmail
+            ? { email: contactEmail }
+            : {};
 
         const contacts =
           await contactCollection.find(query).toArray();
@@ -795,8 +764,6 @@ async function run() {
 
       catch (error) {
 
-        console.log(error);
-
         res.status(500).send({
           error: error.message
         });
@@ -805,24 +772,22 @@ async function run() {
 
     });
 
-    // DELETE CONTACT
     app.delete('/contacts/:id', async (req, res) => {
 
       try {
 
         const id = req.params.id;
 
-        const result = await contactCollection.deleteOne({
-          _id: new ObjectId(id)
-        });
+        const result =
+          await contactCollection.deleteOne({
+            _id: new ObjectId(id)
+          });
 
         res.send(result);
 
       }
 
       catch (error) {
-
-        console.log(error);
 
         res.status(500).send({
           error: error.message
@@ -836,10 +801,10 @@ async function run() {
     // MONGODB PING
     // ============================================
 
-    await client.db("admin").command({ ping: 1 });
+    await client.db('admin').command({ ping: 1 });
 
     console.log(
-      "Pinged your deployment. Successfully connected to MongoDB!"
+      'Pinged your deployment. Successfully connected to MongoDB!'
     );
 
   }
